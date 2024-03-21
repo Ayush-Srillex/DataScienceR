@@ -1,0 +1,110 @@
+---
+title: "Global Super Store - Project Proposal"
+output: pdf_document
+date: "`r Sys.Date()`"
+---
+
+### Group - 5
+
+```{r Library Import, echo=FALSE, message=FALSE}
+library(readxl)
+library(tidyverse)
+library(modelr)
+
+```
+
+Global Super Store is a data set which has around 50000 values. Its a customer centric data set , which has the data of all the orders that have been placed through different vendors and markets , starting from the year 2011 till 2014.
+
+It provides data regarding profit gained over sale of various types of products, and can be used by a company planning to launch a certain type of product in a market.
+
+Data Columns are self-describing through their name, there data type are as follows:
+```{r Data Type, echo=FALSE}
+
+column_type <- read_excel("Global Data Superstore.xls", 
+    sheet = "DataType")
+knitr::kable(
+column_type,
+caption = "Column Type"
+)
+```
+
+Link to Data set - <https://data.world/asepetruk/global-superstore>
+
+Link to Project Github - <https://github.com/Ayush-Srillex/DataScienceR>
+
+
+## Research Question
+
+If the company plans to release a new product in the market to maximize profits:
+
+* Which category of product should it choose? 
+* Which region should it target the strongest?
+* What kind of customer should it look towards?
+
+Once developed, company would also like to know:
+
+* When would be the best timing to release products to maximize profits?
+* What is the optimal quantity to sell in bulk to customers in terms of shipping costs/ profits?
+
+
+## Plots to visualise Data
+
+We can create few plots to better understand data and provide preliminary information
+
+```{r plots}
+superstore <- read_excel("Global Data Superstore.xls",sheet = "Orders")
+
+ggplot(data=superstore)+
+  geom_histogram(mapping = aes(x= Profit))
+```
+We see that the Profit column of the dataset seems to be concentrated at 0, with some extremely high profit or extremely high loss points. It seems data has outliers which have to be dealt separatelt. For the purpose of proposal, we will remove the points lower than 15% quartile and above 85% quartile. 
+
+
+```{r plots2}
+df<-superstore[ superstore$Profit > quantile(superstore$Profit , 0.15 ) , ]
+df<-df[ df$Profit < quantile(df$Profit , 0.85 ) , ]
+
+ggplot(data=df)+
+  geom_histogram(mapping = aes(x= Profit))
+
+```
+Profit is now distributed more evenly distributed. We will not completely neglect these points, we will deal with separately as to why some products have high profits and high loss. Now we can analyse profit with each categorical variable clearly:
+
+```{r plots3}
+ggplot(data=df)+
+  geom_boxplot(mapping = aes(x= Category,y = Profit,color = Market))
+
+```
+We can clearly see dependence of Profit on Category of Product. Further segregating each category into different markets where they were sold, we can see that Furniture has high dependency of profit over market than other category.
+
+These plots give us a starting point in modeling profit given the other parameters. As we dive deep into the variables moving forward, we will find more such relations
+
+We now move to fitting a preliminary linear regression model for Profit
+
+## Preliminary Model
+
+```{r prelimModel}
+lm <- lm(Profit ~ Category, data = df)
+summary(lm)
+```
+Here Furniture is the reference category. We can see positive estimate of profit for Furniture and Technology but negative estimate for Office Supplies. Maybe selling Office Supplies might n=be non profitable than others. Our further analysis will look to test this hypothesis.
+
+We can fit one more model of Profit with Market:
+```{r prelimModel 2}
+lm2 <- lm(Profit ~ Market, data = df)
+summary(lm2)
+```
+(Africa is reference category). EU market has a very high estimate of Profit and EMEA has negative estimate. We'll dive further into these categorical variables and look to segment our data even more for in-depth analysis
+
+## Future Analysis
+
+As mentioned in the report:
+
+* We will look to analyse Profits in depth with each categorical variable present.
+* We will try to make profit into a categorical variable by marking it profitable or loss to simplify further analysis 
+* We will look to model other numerical variables to identify their relationship with other variables.
+* Our final model will look to predict Profit with a combination of best parameters, determined by their correlation with profit and p-value of hypothesis testing.
+* We look to build an interactive dashboard for our analysis to facilitate any researcher with their custom analysis.
+
+If we find other datasets from different sources which might help in further studying our underlying dataset, we will include them also.
+
