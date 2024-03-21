@@ -1,0 +1,27 @@
+---
+title: "leaflet"
+author: "Pim Welle"
+date: "2023-03-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+# TIME SERIES DATA
+library(dygraphs)
+dygraph(nhtemp, main = "New Haven Temperatures") %>% 
+  dyRangeSelector(dateWindow = c("1920-01-01", "1960-01-01"))
+```
+
+```{r}
+library(magrittr)
+library(highcharter)
+hchart(mtcars, "scatter", hcaes(wt, mpg, z = drat, color = hp)) %>%
+  hc_title(text = "Scatter chart with size and color")
+```
+
