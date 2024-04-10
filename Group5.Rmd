@@ -1,0 +1,229 @@
+---
+title: "Final Group Project: Updated Checkpoint Submission"
+author: "Team 5"
+date: "`r Sys.Date()`"
+output:
+  pdf_document
+---
+
+
+# Introduction
+
+This document contains the updated checkpoint submission for our Final Group Project. We have thoroughly reviewed the feedback provided and incorporated suggested actions to enhance our project. This document includes all the code and visualizations used in our analysis. 
+
+# Research question 
+
+Just state research question, assumptions and why the particular data and model is adequate to answer that question
+
+#Data Preparation and Cleaning
+```{r}
+library(readr)
+library(readxl)
+library(ggplot2)
+library(scales)
+library(cowplot)
+
+superstore <- read_excel("Global Data Superstore.xls",sheet = "Orders")
+
+#Removing Outliers- 15% cutoff from both sides
+df<-superstore[ superstore$Profit > quantile(superstore$Profit , 0.15 ) , ]
+df<-df[ df$Profit < quantile(df$Profit , 0.85 ) , ]
+
+```
+
+# Exploratory Data Analysis (EDA)
+
+```{r}
+ggplot(data=df)+
+  geom_histogram(mapping = aes(x= Profit))
+```
+
+Profit is more evenly distributed. We will not completely neglect the cutoff points, we will deal with separately as to why some products have high profits and high loss. Now we can analyse profit with each categorical variable clearly:
+
+``` {r}
+
+ggplot(data=df)+
+  geom_boxplot(mapping = aes(x= Category,y = Profit,color = Market))
+
+```
+
+We can clearly see dependence of Profit on Category of Product. Further segregating each category into different markets where they were sold, we can see that Furniture has high dependency of profit over market than other category.
+
+We will now plot total profit against various parameters. We will also look to analyse how removing the outliers affected our dataset:
+
+```{r}
+#With Outliers:
+p1<-ggplot(data, aes(x=Category, y=Profit)) +
+  stat_summary(fun =sum, geom="bar") +
+  labs(title="With Outlier", y="Total Profit", x="Category") +
+  scale_y_continuous(labels = comma) 
+
+#Without Outlier
+p2<-ggplot(df, aes(x=Category, y=Profit)) +
+  stat_summary(fun =sum, geom="bar") +
+  labs(title="Without Outlier", y="Total Profit", x="Category") +
+  scale_y_continuous(labels = comma) 
+
+plot_grid(p1, p2, labels = "AUTO")
+```
+Removing outliers actually changes which category is the most profitable one in terms of pure sum of profit.
+ 
+In the without outlier data, Office Supplies turns out to be the most profitable one, but one the overall dataset, Technology products are the most profitable one
+
+We now try to visualise Sales and profit
+
+```{r}
+ggplot(data = df,aes(x=Discount,y=Profit))+
+  geom_point()
+
+```
+
+# Feature Selection
+Before building models, we identify the most relevant features for predicting our target variable.
+
+```{r}
+library(caret)
+
+# Sample Data Preparation
+set.seed(123)  # Setting a seed for reproducibility
+
+# Example dataset generation (Replace with actual data)
+data <- twoClassSim(100)  # Generates a simulated dataset with 100 observations and a binary target
+target <- data$Class  # Assuming 'Class' is the target variable in the generated dataset
+
+# Train a Random Forest model to assess feature importance
+model <- train(Class~., data=data, method="rf", importance=TRUE)
+
+# Plot the variable importance
+# Extracting variable importance
+importance <- varImp(model, scale=FALSE)
+
+# Plotting variable importance
+plot(importance)
+```
+
+# Model Building
+Describe the models you have built, including any assumptions or choices made in the process.
+
+Model 1
+```{r}
+# Code to build and train your first model
+```
+
+Model 2
+
+```{r}
+# Code to build and train your second model, if applicable
+```
+
+# Model Selection and Hypothesis Testing
+We explore several models to find the best one for predicting our target variable.
+
+```{r}
+library(caret)
+library(randomForest)
+library(e1071) # For svm and glm
+
+# Split the data into training and testing sets
+index <- createDataPartition(data$Class, p=0.8, list=FALSE)
+trainData <- data[index, ]
+testData <- data[-index, ]
+
+# Model 1: Random Forest
+rfModel <- randomForest(Class ~ ., data=trainData)
+rfPredictions <- predict(rfModel, newdata=testData)
+rfConfMatrix <- confusionMatrix(rfPredictions, testData$Class)
+print("Random Forest Model Results:")
+print(rfConfMatrix)
+
+# Model 2: Generalized Linear Model
+glmModel <- glm(Class ~ ., data=trainData, family="binomial")
+glmPredictions <- predict(glmModel, newdata=testData, type="response")
+glmPredictionsClass <- ifelse(glmPredictions > 0.5, "Class1", "Class2")
+glmConfMatrix <- confusionMatrix(as.factor(glmPredictionsClass), testData$Class)
+print("Generalized Linear Model Results:")
+print(glmConfMatrix)
+
+```
+
+
+# Model Selection
+```{r}
+
+# Random Forest Metrics
+rfAccuracy <- rfConfMatrix$overall['Accuracy']
+rfSensitivity <- rfConfMatrix$byClass['Sensitivity']
+rfSpecificity <- rfConfMatrix$byClass['Specificity']
+
+# GLM Metrics
+glmAccuracy <- glmConfMatrix$overall['Accuracy']
+glmSensitivity <- glmConfMatrix$byClass['Sensitivity']
+glmSpecificity <- glmConfMatrix$byClass['Specificity']
+
+# Print the metrics
+print(paste("Random Forest Accuracy:", rfAccuracy))
+print(paste("Random Forest Sensitivity:", rfSensitivity))
+print(paste("Random Forest Specificity:", rfSpecificity))
+
+print(paste("GLM Accuracy:", glmAccuracy))
+print(paste("GLM Sensitivity:", glmSensitivity))
+print(paste("GLM Specificity:", glmSpecificity))
+
+```
+```{r}
+library(pROC)
+
+# Random Forest AUC
+rfProbabilities <- predict(rfModel, newdata=testData, type="prob")
+rfROC <- roc(response=testData$Class, predictor=rfProbabilities[,2])
+rfAUC <- auc(rfROC)
+
+# GLM AUC
+glmProbabilities <- predict(glmModel, newdata=testData, type="response")
+glmROC <- roc(response=testData$Class, predictor=glmProbabilities)
+glmAUC <- auc(glmROC)
+
+# Print AUC values
+print(paste("Random Forest AUC:", rfAUC))
+print(paste("GLM AUC:", glmAUC))
+```
+```{r}
+# Summary for GLM model
+glmSummary <- summary(glmModel)
+print(glmSummary)
+
+```
+# Other features
+```{r}
+# Assuming logistic regression model
+
+# Calculating fitted probabilities
+fittedProbabilities <- predict(glmModel, type = "response")
+
+# Extracting deviance residuals
+devianceResiduals <- residuals(glmModel, type = "deviance")
+
+# Plotting deviance residuals against fitted probabilities
+plot(fittedProbabilities, devianceResiduals, xlab = "Fitted Probabilities", ylab = "Deviance Residuals")
+abline(h = 0, col = "red")
+
+```
+
+This plot can reveal patterns in the residuals, indicating potential issues with the model, such as non-linearity, heteroscedasticity, or outliers.
+
+# Results
+Discuss the results of your models, including any important metrics and how they compare to your objectives.
+
+
+```{r}
+# Code to present your results
+# This might include generating tables, figures, etc.
+```
+
+# Analysis (interpretation)
+
+
+# Conclusions and Future Work
+* Summarize the key findings of your project, the implications of these findings, and any future work that could be conducted to further this research.
+* summarize the feedback provided and the specific actions taken by your team in response to each point of feedback.
+
