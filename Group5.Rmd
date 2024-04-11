@@ -9,38 +9,79 @@ output:
 
 # Introduction
 
-This document contains the updated checkpoint submission for our Final Group Project. We have thoroughly reviewed the feedback provided and incorporated suggested actions to enhance our project. This document includes all the code and visualizations used in our analysis. 
 
-# Research question 
-
-Just state research question, assumptions and why the particular data and model is adequate to answer that question
-
-#Data Preparation and Cleaning
-```{r}
+```{r Library Import, echo=FALSE, message=FALSE, warning=FALSE}
+library(readxl)
+library(tidyverse)
+library(modelr)
 library(readr)
 library(readxl)
 library(ggplot2)
 library(scales)
 library(cowplot)
+library(dplyr)
 
+```
+
+Global Super Store is a data set which has around 50000 values. Its a customer centric data set , which has the data of all the orders that have been placed through different vendors and markets , starting from the year 2011 till 2014.
+
+It provides data regarding profit gained over sale of various types of products, and can be used by a company planning to launch a certain type of product in a market.
+
+Link to Project Github - <https://github.com/Ayush-Srillex/DataScienceR>
+
+Data Columns are self-describing through their name, there data type are as follows:
+```{r Data Type, echo=FALSE, message=FALSE, warning=FALSE}
+
+column_type <- read_excel("Global Data Superstore.xls", 
+    sheet = "DataType")
+knitr::kable(
+column_type,
+caption = "Column Type"
+)
+
+```
+
+# Research question 
+
+If the company plans to release a new product in the market to maximize profits:
+
+* Which category of product should it choose? 
+* Which region should it target the strongest?
+* What kind of customer should it look towards?
+
+Once developed, company would also like to know:
+
+* When would be the best timing to release products to maximize profits?
+* What is the optimal quantity to sell in bulk to customers in terms of shipping costs/ profits?
+
+#Data Preparation and Cleaning
+
+```{r, message=FALSE, warning=FALSE}
 superstore <- read_excel("Global Data Superstore.xls",sheet = "Orders")
+
+#Check Boxplots for Sales and Profit Variables:
+boxplot(superstore[c(19,22)])
 
 #Removing Outliers- 15% cutoff from both sides
 df<-superstore[ superstore$Profit > quantile(superstore$Profit , 0.15 ) , ]
 df<-df[ df$Profit < quantile(df$Profit , 0.85 ) , ]
 
-```
+#Boxplot for Sales and profit after Outlier Removal
+df<-df[df$Sales<quantile(df$Sales,0.85) ,]
+boxplot(df[c(19,22)])
 
+```
+We can clearly see the distribution of dataset becoming more normal after outlier removal. We will not completely ignore these data points. Instead, we'll treat them separately
 # Exploratory Data Analysis (EDA)
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 ggplot(data=df)+
   geom_histogram(mapping = aes(x= Profit))
 ```
 
 Profit is more evenly distributed. We will not completely neglect the cutoff points, we will deal with separately as to why some products have high profits and high loss. Now we can analyse profit with each categorical variable clearly:
 
-``` {r}
+``` {r, message=FALSE, warning=FALSE}
 
 ggplot(data=df)+
   geom_boxplot(mapping = aes(x= Category,y = Profit,color = Market))
@@ -51,179 +92,276 @@ We can clearly see dependence of Profit on Category of Product. Further segregat
 
 We will now plot total profit against various parameters. We will also look to analyse how removing the outliers affected our dataset:
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
+
 #With Outliers:
-p1<-ggplot(data, aes(x=Category, y=Profit)) +
+p1<-ggplot(superstore, aes(x=Category, y=Profit)) +
   stat_summary(fun =sum, geom="bar") +
   labs(title="With Outlier", y="Total Profit", x="Category") +
-  scale_y_continuous(labels = comma) 
+  scale_y_continuous(labels = comma)
 
-#Without Outlier
+#Without Outliers
 p2<-ggplot(df, aes(x=Category, y=Profit)) +
   stat_summary(fun =sum, geom="bar") +
   labs(title="Without Outlier", y="Total Profit", x="Category") +
-  scale_y_continuous(labels = comma) 
+  scale_y_continuous(labels = comma)
 
 plot_grid(p1, p2, labels = "AUTO")
+
 ```
 Removing outliers actually changes which category is the most profitable one in terms of pure sum of profit.
  
 In the without outlier data, Office Supplies turns out to be the most profitable one, but one the overall dataset, Technology products are the most profitable one
 
-We now try to visualise Sales and profit
+We now move to visualise all numeric variables in our dataset: Sales, Quantity, Discount, Profit and Shipping Cost. We study the relationship between all the combinations of the variables as well. 
 
-```{r}
-ggplot(data = df,aes(x=Discount,y=Profit))+
-  geom_point()
+```{r, echo=FALSE, warning=FALSE}
+library(ggplot2) 
+library(GGally) 
+ 
+Scatter_Matrix <- ggpairs(df,columns = c(19:23), 
+                          title = "Scatter Plot Matrix Sales Data", 
+                          axisLabels = "show" ,progress = FALSE) 
+# ggsave("Scatter plot matrix.png", Scatter_Matrix, width = 7, 
+#        height = 7, units = "in") 
+Scatter_Matrix
 
 ```
+
+For our focus variable Profit, we see that it is positively correlated with Sales, Quantity and Shipping Cost, but negatively correlated with Discount. This makes sense with the common knowledge of commerce and finance.
+
+We move to feature selection
 
 # Feature Selection
 Before building models, we identify the most relevant features for predicting our target variable.
 
-```{r}
-library(caret)
+We start with identifying most important categorical variables.
+We carry out the similar analysis as before in EDA analysis but with some categorical variables and Profit as primary target variable. We will primarily use linear modeling to identify correlation with Profit. We will carry out test of Profit with Ship Mode, Segment, Market, Country, Sub-Category, Order Priority.
+```{r, message=FALSE, warning=FALSE}
+library(broom)
+models <- list()
+cat_variables=c("`Ship Mode`","Segment", "Country", "Market", "`Sub-Category`", "`Order Priority`")
+table_list <- list()
+i=1
+for(c in cat_variables) {
+  formula <- as.formula(paste("Profit", "~", paste(c,"-1")))
+  reg<-lm(formula,data=df)
+  
+  coefs <- tidy(reg)
+  a<-coefs[order(coefs$estimate, decreasing = TRUE),]
+  table_list[[i]]<-knitr::kable(
+    a,
+    caption = c
+  )
+  i=i+1
+}
 
-# Sample Data Preparation
-set.seed(123)  # Setting a seed for reproducibility
-
-# Example dataset generation (Replace with actual data)
-data <- twoClassSim(100)  # Generates a simulated dataset with 100 observations and a binary target
-target <- data$Class  # Assuming 'Class' is the target variable in the generated dataset
-
-# Train a Random Forest model to assess feature importance
-model <- train(Class~., data=data, method="rf", importance=TRUE)
-
-# Plot the variable importance
-# Extracting variable importance
-importance <- varImp(model, scale=FALSE)
-
-# Plotting variable importance
-plot(importance)
+for (i in seq_along(table_list)) {
+  print(table_list[[i]])
+}
 ```
+
+We see that for categorical variables - Ship Mode, Segment, Order Priority have almost the same estimate for each of its categories. This means the Profit doesn't depend on these categories, each category would give the same Profit. We can run a t test to confirm the hypothesis that these estimates are not statistically significant.
+
+For other categorical variables - Country, Market and Product Sub Category, there is difference in estimate for each category. The estimates are given in decreasing order to identify the categories with most positive impact on Profit. For example:
+
+* In market variable- EU Market comes out to be most profitable one, and EMEA is the least profitable.
+
+* In Country variable, we see that countries like Yemen and Kazakhstan as actually giving loss for the products sold there.
+
+Other inferences can be drawn as per reader's wish.
+
+Moving on to identifying most important numeric variables against Profit.
+```{r, message=FALSE, warning=FALSE}
+library(caret)
+library(relaimpo)
+
+cat_variables=c("Sales","Quantity","Discount","Shipping Cost","Profit")
+df_train<-df[,cat_variables]
+regressor <- lm(Profit ~ . , data = df_train)
+relImportance <- calc.relimp(regressor, type = "lmg", rela = TRUE)
+sort(relImportance$lmg, decreasing=TRUE)
+
+```
+We see that Sales is the most important feature for Profit. 
+
+With the above analysis, we identify the following most important features:
+
+* Categorical Variables: Market, Product Sub-Category
+* Numeric variables: Sales, Shipping Cost, Discount
 
 # Model Building
-Describe the models you have built, including any assumptions or choices made in the process.
+
+We divide the dataset in 70% train test split for model testing:
+```{r, message=FALSE, warning=FALSE}
+train_indices <- createDataPartition(df$Profit, p = 0.7, list = FALSE)
+train_data <- df[train_indices, ]
+test_data <- df[-train_indices, ]
+```
+
+Our preliminary model would be taking all the important variables:
+Model 0
+```{r, message=FALSE, warning=FALSE}
+reg0<-lm(Profit~Market+`Sub-Category`+Sales+`Shipping Cost`+Discount,data=train_data)
+pred <- predict(reg0, newdata = test_data)
+
+test0<-test_data
+test0$predictions<-pred
+
+```
+
+Our next model would be taking the most important categorical and numeric variable. These are - Sub-Category and Sales
 
 Model 1
-```{r}
-# Code to build and train your first model
+```{r, message=FALSE, warning=FALSE}
+reg1<-lm(Profit~`Sub-Category`+Sales,data=train_data)
+summary(reg1)
+pred <- predict(reg1, newdata = test_data)
+
+test1<-test_data
+test1$predictions<-pred
 ```
+Our next model takes Sales, Shipping Cost and Discount only, removing all categorical variables
 
 Model 2
 
-```{r}
-# Code to build and train your second model, if applicable
+```{r, message=FALSE, warning=FALSE}
+reg2<-lm(Profit~Sales+`Shipping Cost`+Discount,data=train_data)
+summary(reg2)
+pred <- predict(reg2, newdata = test_data)
+
+test2<-test_data
+test2$predictions<-pred
 ```
+Our last model takes only Sales and Shipping Cost Variables
 
-# Model Selection and Hypothesis Testing
-We explore several models to find the best one for predicting our target variable.
+Model 3
 
-```{r}
-library(caret)
-library(randomForest)
-library(e1071) # For svm and glm
+```{r, message=FALSE, warning=FALSE}
+reg3<-lm(Profit~Sales+`Shipping Cost`,data=train_data)
+summary(reg3)
+pred <- predict(reg3, newdata = test_data)
 
-# Split the data into training and testing sets
-index <- createDataPartition(data$Class, p=0.8, list=FALSE)
-trainData <- data[index, ]
-testData <- data[-index, ]
-
-# Model 1: Random Forest
-rfModel <- randomForest(Class ~ ., data=trainData)
-rfPredictions <- predict(rfModel, newdata=testData)
-rfConfMatrix <- confusionMatrix(rfPredictions, testData$Class)
-print("Random Forest Model Results:")
-print(rfConfMatrix)
-
-# Model 2: Generalized Linear Model
-glmModel <- glm(Class ~ ., data=trainData, family="binomial")
-glmPredictions <- predict(glmModel, newdata=testData, type="response")
-glmPredictionsClass <- ifelse(glmPredictions > 0.5, "Class1", "Class2")
-glmConfMatrix <- confusionMatrix(as.factor(glmPredictionsClass), testData$Class)
-print("Generalized Linear Model Results:")
-print(glmConfMatrix)
-
+test3<-test_data
+test3$predictions<-pred
 ```
-
+We now move to test our models for their performance
 
 # Model Selection
-```{r}
+```{r, message=FALSE, warning=FALSE}
+model_eval <- data.frame(
+  model=character(),
+  rms = numeric(),
+  r_sq = numeric(),
+  adj_r_sq = numeric()
+)
+#Model 0:
+rmse <- sqrt(mean((test0$Profit - test0$predictions)^2))
+r_squared <- summary(reg0)$r.squared
+adjusted_r_squared <- summary(reg0)$adj.r.squared
 
-# Random Forest Metrics
-rfAccuracy <- rfConfMatrix$overall['Accuracy']
-rfSensitivity <- rfConfMatrix$byClass['Sensitivity']
-rfSpecificity <- rfConfMatrix$byClass['Specificity']
+model <- data.frame(
+  model="Model 0",
+  rms = rmse,
+  r_sq = r_squared,
+  adj_r_sq = adjusted_r_squared
+)
 
-# GLM Metrics
-glmAccuracy <- glmConfMatrix$overall['Accuracy']
-glmSensitivity <- glmConfMatrix$byClass['Sensitivity']
-glmSpecificity <- glmConfMatrix$byClass['Specificity']
+model_eval<-rbind(model_eval,model)
 
-# Print the metrics
-print(paste("Random Forest Accuracy:", rfAccuracy))
-print(paste("Random Forest Sensitivity:", rfSensitivity))
-print(paste("Random Forest Specificity:", rfSpecificity))
+#Model 1:
 
-print(paste("GLM Accuracy:", glmAccuracy))
-print(paste("GLM Sensitivity:", glmSensitivity))
-print(paste("GLM Specificity:", glmSpecificity))
+rmse <- sqrt(mean((test1$Profit - test1$predictions)^2))
+r_squared <- summary(reg1)$r.squared
+adjusted_r_squared <- summary(reg1)$adj.r.squared
+
+model <- data.frame(
+  model="Model 1",
+  rms = rmse,
+  r_sq = r_squared,
+  adj_r_sq = adjusted_r_squared
+)
+
+model_eval<-rbind(model_eval,model)
+
+#Model 2:
+
+rmse <- sqrt(mean((test2$Profit - test2$predictions)^2))
+r_squared <- summary(reg2)$r.squared
+adjusted_r_squared <- summary(reg2)$adj.r.squared
+
+model <- data.frame(
+  model="Model 2",
+  rms = rmse,
+  r_sq = r_squared,
+  adj_r_sq = adjusted_r_squared
+)
+
+model_eval<-rbind(model_eval,model)
+
+#Model 3
+
+rmse <- sqrt(mean((test3$Profit - test3$predictions)^2))
+r_squared <- summary(reg3)$r.squared
+adjusted_r_squared <- summary(reg3)$adj.r.squared
+
+model <- data.frame(
+  model="Model 3",
+  rms = rmse,
+  r_sq = r_squared,
+  adj_r_sq = adjusted_r_squared
+)
+
+model_eval<-rbind(model_eval,model)
+
+model_eval
+```
+We see that our preliminary Model works the best out of the 4 models we tested, mainly because of the R Squared Value for each model. Model 0 gives 55.01% R-Squared value.
+
+# Advanced Model Development
+
+In real life, it is unlikely that a company would have sales and profit data of each market region before actually entering that market. In such cases, company usually have to build a model on regions it currently operates in, and then use that model to predict behaviour of other market. We would simulate one such scenario:
+
+We assume that we only have sales data for EU and US market, and that we're trying to enter APAC market. We'll train our model using best features on EU and US market:
+
+```{r, message=FALSE, warning=FALSE}
+df_EUandUS<-subset(df, Market == "US" | Market == "EU")
+df_APAC<-subset(df, Market == "APAC")
+
+regNew<-lm(Profit~`Sub-Category`+Sales+`Shipping Cost`+Discount,data=df_EUandUS)
+pred <- predict(regNew, newdata = df_APAC)
+
+#test model accuracy
+rmse <- sqrt(mean((df_APAC$Profit - pred)^2))
+r_squared <- summary(regNew)$r.squared
+print(paste("RMSE:", rmse))
+print(paste("R Squared:", r_squared))
 
 ```
-```{r}
-library(pROC)
+We see that RMSE for APAC data is 14.19. If we check the test data error when we initally built the model considering all the markets, it was 11.9. This shows that although the performance reduced when we tried to superimpose data from one market to other, it still performs reasonably with R Squared value - 56.44%
 
-# Random Forest AUC
-rfProbabilities <- predict(rfModel, newdata=testData, type="prob")
-rfROC <- roc(response=testData$Class, predictor=rfProbabilities[,2])
-rfAUC <- auc(rfROC)
+# Results and Analysis
+We have so far completed :
 
-# GLM AUC
-glmProbabilities <- predict(glmModel, newdata=testData, type="response")
-glmROC <- roc(response=testData$Class, predictor=glmProbabilities)
-glmAUC <- auc(glmROC)
+* EDA for our dataset
+* Identified key features to model one variable - Profit
+* Experimented with model trained on one category data and used it to predict data for other value of the category.
 
-# Print AUC values
-print(paste("Random Forest AUC:", rfAUC))
-print(paste("GLM AUC:", glmAUC))
-```
-```{r}
-# Summary for GLM model
-glmSummary <- summary(glmModel)
-print(glmSummary)
+We identified the following most important features:
 
-```
-# Other features
-```{r}
-# Assuming logistic regression model
+* Categorical Variables: Market, Product Sub-Category
+* Numeric variables: Sales, Shipping Cost, Discount 
 
-# Calculating fitted probabilities
-fittedProbabilities <- predict(glmModel, type = "response")
+We achieved best performance or R-Squared = 55.01% with Model 0.
 
-# Extracting deviance residuals
-devianceResiduals <- residuals(glmModel, type = "deviance")
+# Future Work
+Our future work further develops on the model built till now. So far, we have considered different markets. We will be segmenting our analysis on Sub Category in next step. Analysing in detail effect of each sub category on profit and other numeric variables.
 
-# Plotting deviance residuals against fitted probabilities
-plot(fittedProbabilities, devianceResiduals, xlab = "Fitted Probabilities", ylab = "Deviance Residuals")
-abline(h = 0, col = "red")
+Also, taking into account feedback given to us by TA, the following steps would be carried out:
 
-```
-
-This plot can reveal patterns in the residuals, indicating potential issues with the model, such as non-linearity, heteroscedasticity, or outliers.
-
-# Results
-Discuss the results of your models, including any important metrics and how they compare to your objectives.
-
-
-```{r}
-# Code to present your results
-# This might include generating tables, figures, etc.
-```
-
-# Analysis (interpretation)
-
-
-# Conclusions and Future Work
-* Summarize the key findings of your project, the implications of these findings, and any future work that could be conducted to further this research.
-* summarize the feedback provided and the specific actions taken by your team in response to each point of feedback.
+1. Model other numeric variables- Discount, Sales, Shipping Cost.
+2. Treat Discount Variable as a categorical variable and carry out classification analysis
+3. Treat other categorical variables as target and carry out classification modeling
+4. Explore other datasets which provide other forms of cost - Revenue, Cost price, Selling Price etc so as to further refine our Profit Model
+5. Treat removed outlier data separately
 
