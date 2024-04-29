@@ -1,5 +1,5 @@
 ---
-title: "Final Group Project: Updated Checkpoint Submission"
+title: "Final Group Project"
 author: "Team 5"
 date: "`r Sys.Date()`"
 output:
@@ -20,6 +20,8 @@ library(ggplot2)
 library(scales)
 library(cowplot)
 library(dplyr)
+library(caret)
+library(relaimpo)
 
 ```
 
@@ -43,16 +45,14 @@ caption = "Column Type"
 
 # Research question 
 
-If the company plans to release a new product in the market to maximize profits:
+Our research aims to provide a base for companies manufacturing and selling various kinds of products which are within our scope of data. We wish to answer the following common questions any company would have regarding their new product:
 
-* Which category of product should it choose? 
-* Which region should it target the strongest?
-* What kind of customer should it look towards?
+1. If company manufactures a certain category of product, which sub category should it target to generate high profits?
+2. Which market should it be choosing on priority for product launch?
+3. What discount should it offer its consumers moving forward to retain its consumer base and increase sales and hence profits
+4. If a company already operates in a certain market and wants to expand itself to different parts of world, how should it move forward? How accurate is the model developed in their own market will be in different market?
 
-Once developed, company would also like to know:
-
-* When would be the best timing to release products to maximize profits?
-* What is the optimal quantity to sell in bulk to customers in terms of shipping costs/ profits?
+We don't aim to provide accurate answer to these questions as these vary with different companies. We only wish to provide a strong base for this analysis through extensive EDA and model development.
 
 #Data Preparation and Cleaning
 
@@ -60,58 +60,69 @@ Once developed, company would also like to know:
 superstore <- read_excel("Global Data Superstore.xls",sheet = "Orders")
 
 #Check Boxplots for Sales and Profit Variables:
-boxplot(superstore[c(19,22)])
+boxplot(superstore[c(19,22)],main="BoxPlot of Sales and Profit")
 
-#Removing Outliers- 15% cutoff from both sides
+#try out different outlier percentage removal
+superstore$'Sub-Category' <- as.factor(superstore$'Sub-Category')
+superstore$Profit <- as.numeric(superstore$Profit)
+
+# Define the thresholds for outliers
+lower_5 <- quantile(superstore$Profit, 0.05)
+upper_5 <- quantile(superstore$Profit, 0.95)
+lower_10 <- quantile(superstore$Profit, 0.10)
+upper_10 <- quantile(superstore$Profit, 0.90)
+lower_15 <- quantile(superstore$Profit, 0.15)
+upper_15 <- quantile(superstore$Profit, 0.85)
+
+# Filter superstore to remove outliers
+superstore_5 <- superstore %>% filter(Profit > lower_5 & Profit < upper_5)
+superstore_10 <- superstore %>% filter(Profit > lower_10 & Profit < upper_10)
+superstore_15 <- superstore %>% filter(Profit > lower_15 & Profit < upper_15)
+
+# Count how many entries remain in each category
+count_5 <- table(superstore_5$'Sub-Category')
+count_10 <- table(superstore_10$'Sub-Category')
+count_15 <- table(superstore_15$'Sub-Category')
+original_count <- table(superstore$'Sub-Category')
+
+comparison<-rbind(original_count,count_5,count_10,count_15)
+rownames(comparison)<-c("Original Count","5% Outlier","10% Outlier","15% Outlier")
+
+
+knitr::kable(
+t(comparison),
+caption = "Comparison of datapoints removed in Each category with % of outlier removed"
+)
+
+```
+
+1.	Subcategories with the most drop: Bookcases, Chairs, Copiers, and Tables. It indicates that these subcategories have an outstanding or low profit values which was filtered. Bookcases and Tables illustrates huge reductions, and therefore require a deeper analysis on market served.
+
+2.	Subcategories with the minimal drop: Art, Envelopes, Labels, Fasteners, and Paper. It suggests that there are fewer extreme profit outliers and that sales in these categories are more regularly within the median profit range. Fasteners and Labels were not affected by the outliers at all. It implies that their profit is stable. 
+Summary: 
+
+a.	Office category shows a stability and could be consistent sources of investment or growth, as well as dependable contributors to total profitability. 
+b.	Review high drop subcategories by other affected factors such as market, discounts, and delivery.
+
+# Exploratory Data Analysis (EDA)
+
+```{r, message=FALSE, warning=FALSE,tidy=TRUE}
 df<-superstore[ superstore$Profit > quantile(superstore$Profit , 0.15 ) , ]
 df<-df[ df$Profit < quantile(df$Profit , 0.85 ) , ]
 
-#Boxplot for Sales and profit after Outlier Removal
 df<-df[df$Sales<quantile(df$Sales,0.85) ,]
-boxplot(df[c(19,22)])
 
-```
-We can clearly see the distribution of dataset becoming more normal after outlier removal. We will not completely ignore these data points. Instead, we'll treat them separately
-# Exploratory Data Analysis (EDA)
-
-```{r, message=FALSE, warning=FALSE}
+outlierData<-superstore[ superstore$Profit < quantile(superstore$Profit , 0.15 ) | superstore$Profit > quantile(superstore$Profit , 0.85 ) , ]
+  
 ggplot(data=df)+
-  geom_histogram(mapping = aes(x= Profit))
+  geom_histogram(mapping = aes(x= Profit),binwidth = 1)+labs(title = "After Outlier Removal")
+
+ggplot(data=outlierData)+
+  geom_histogram(mapping = aes(x= Profit),binwidth = 10)+labs(title = "Outlier Data Distribution")
 ```
 
-Profit is more evenly distributed. We will not completely neglect the cutoff points, we will deal with separately as to why some products have high profits and high loss. Now we can analyse profit with each categorical variable clearly:
+Profit is more evenly distributed. We will not completely neglect the cutoff points, we will deal with separately as to why some products have high profits and high loss.
 
-``` {r, message=FALSE, warning=FALSE}
-
-ggplot(data=df)+
-  geom_boxplot(mapping = aes(x= Category,y = Profit,color = Market))
-
-```
-
-We can clearly see dependence of Profit on Category of Product. Further segregating each category into different markets where they were sold, we can see that Furniture has high dependency of profit over market than other category.
-
-We will now plot total profit against various parameters. We will also look to analyse how removing the outliers affected our dataset:
-
-```{r, message=FALSE, warning=FALSE}
-
-#With Outliers:
-p1<-ggplot(superstore, aes(x=Category, y=Profit)) +
-  stat_summary(fun =sum, geom="bar") +
-  labs(title="With Outlier", y="Total Profit", x="Category") +
-  scale_y_continuous(labels = comma)
-
-#Without Outliers
-p2<-ggplot(df, aes(x=Category, y=Profit)) +
-  stat_summary(fun =sum, geom="bar") +
-  labs(title="Without Outlier", y="Total Profit", x="Category") +
-  scale_y_continuous(labels = comma)
-
-plot_grid(p1, p2, labels = "AUTO")
-
-```
-Removing outliers actually changes which category is the most profitable one in terms of pure sum of profit.
- 
-In the without outlier data, Office Supplies turns out to be the most profitable one, but one the overall dataset, Technology products are the most profitable one
 
 We now move to visualise all numeric variables in our dataset: Sales, Quantity, Discount, Profit and Shipping Cost. We study the relationship between all the combinations of the variables as well. 
 
@@ -137,7 +148,7 @@ Before building models, we identify the most relevant features for predicting ou
 
 We start with identifying most important categorical variables.
 We carry out the similar analysis as before in EDA analysis but with some categorical variables and Profit as primary target variable. We will primarily use linear modeling to identify correlation with Profit. We will carry out test of Profit with Ship Mode, Segment, Market, Country, Sub-Category, Order Priority.
-```{r, message=FALSE, warning=FALSE}
+```{r, message=FALSE, warning=FALSE,tidy=TRUE}
 library(broom)
 models <- list()
 cat_variables=c("`Ship Mode`","Segment", "Country", "Market", "`Sub-Category`", "`Order Priority`")
@@ -149,15 +160,11 @@ for(c in cat_variables) {
   
   coefs <- tidy(reg)
   a<-coefs[order(coefs$estimate, decreasing = TRUE),]
-  table_list[[i]]<-knitr::kable(
-    a,
-    caption = c
-  )
+  print(knitr::kable(
+  head(a),
+  caption = c
+  ))
   i=i+1
-}
-
-for (i in seq_along(table_list)) {
-  print(table_list[[i]])
 }
 ```
 
@@ -167,14 +174,12 @@ For other categorical variables - Country, Market and Product Sub Category, ther
 
 * In market variable- EU Market comes out to be most profitable one, and EMEA is the least profitable.
 
-* In Country variable, we see that countries like Yemen and Kazakhstan as actually giving loss for the products sold there.
+* In Country variable, we see that countries like Yemen and UAE as actually giving loss for the products sold there.
 
 Other inferences can be drawn as per reader's wish.
 
 Moving on to identifying most important numeric variables against Profit.
 ```{r, message=FALSE, warning=FALSE}
-library(caret)
-library(relaimpo)
 
 cat_variables=c("Sales","Quantity","Discount","Shipping Cost","Profit")
 df_train<-df[,cat_variables]
@@ -203,12 +208,23 @@ Our preliminary model would be taking all the important variables:
 Model 0
 ```{r, message=FALSE, warning=FALSE}
 reg0<-lm(Profit~Market+`Sub-Category`+Sales+`Shipping Cost`+Discount,data=train_data)
+summary(reg0)
 pred <- predict(reg0, newdata = test_data)
 
 test0<-test_data
 test0$predictions<-pred
 
 ```
+
+## Analysis of Model 0:
+* Residuals:
+Median of residuals is just -0.242 , very close to 0 (ideal residual) and the 1st, 3rd quantile are also small. But the min and max of residuals varies from -55.103 tpo 50.492, which is a very large range. This means the residuals are distributed in a tapered fashion. This can also be seen from the residual standard error : 11.78. If we go on removing outliers from the dataset, this distribution will tend to be more normal.
+
+* Coefficients:
+We can interpret each coefficient by comparing with standard 95% p value - 0.05 or by the number of stars in from of the variable. 3 stars indicate high relation of predictor and response variable, while 0 starts indicate very low relation.
+
+Out of the markets, APAC, EU and US are statistically more likely to influence profit than other markets. Similar inference can be made for other variables.
+
 
 Our next model would be taking the most important categorical and numeric variable. These are - Sub-Category and Sales
 
@@ -221,6 +237,8 @@ pred <- predict(reg1, newdata = test_data)
 test1<-test_data
 test1$predictions<-pred
 ```
+
+
 Our next model takes Sales, Shipping Cost and Discount only, removing all categorical variables
 
 Model 2
@@ -314,10 +332,22 @@ model <- data.frame(
 
 model_eval<-rbind(model_eval,model)
 
-model_eval
+knitr::kable(
+model_eval,
+caption = "Model Evaluation"
+)
 ```
 We see that our preliminary Model works the best out of the 4 models we tested, mainly because of the R Squared Value for each model. Model 0 gives 55.01% R-Squared value.
 
+* Multiple R squared:
+We get R squared value as 55.01, which is not very high. This value indicates that 54.89% of variance in our data set can be explained by this model. A value >80% is generally considered to be a good fit. ways to improve this R squared value are:
+
+1. Add more variables in our model which are highly correlated to response variable. Since we have already taken the most correlated variables from our previous steps, this essentially means identifying parameters outside current dataset which might be able to better explain data variation.
+
+2. Removing outliers - Outlier removal is a good way to improve R squared value but this also reduces datapoints which might be important to modeling market variance.
+
+* Adjusted R Squared:
+Here Adj R squared values are almost equal to R squared and provide no additional information. Adj R squared basically improves itself upon addition of parameter only if the parameter improves the value.
 # Advanced Model Development
 
 In real life, it is unlikely that a company would have sales and profit data of each market region before actually entering that market. In such cases, company usually have to build a model on regions it currently operates in, and then use that model to predict behaviour of other market. We would simulate one such scenario:
@@ -340,8 +370,115 @@ print(paste("R Squared:", r_squared))
 ```
 We see that RMSE for APAC data is 14.19. If we check the test data error when we initally built the model considering all the markets, it was 11.9. This shows that although the performance reduced when we tried to superimpose data from one market to other, it still performs reasonably with R Squared value - 56.44%
 
+# Outlier Data Analysis- Extended EDA
+
+We now analyse Outlier data. Further analysis of high drop subcategories:
+```{r}
+focused_data <- superstore %>% 
+  filter(`Sub-Category` %in% c("Bookcases", "Chairs", "Copiers", "Tables"))
+
+remove_outliers_5 <- function(df) {
+  quantiles <- quantile(df$Profit, probs = c(0.05, 0.95))
+  df %>% filter(Profit > quantiles[1] & Profit < quantiles[2])
+}
+
+cleaned_data_5 <- focused_data %>%
+  group_by(Market, `Sub-Category`) %>%
+  do(remove_outliers_5(.))
+
+remove_outliers_10 <- function(df) {
+  quantiles <- quantile(df$Profit, probs = c(0.1, 0.9))
+  df %>% filter(Profit > quantiles[1] & Profit < quantiles[2])
+}
+
+cleaned_data_10 <- focused_data %>%
+  group_by(Market, `Sub-Category`) %>%
+  do(remove_outliers_10(.))
+
+remove_outliers_15 <- function(df) {
+  quantiles <- quantile(df$Profit, probs = c(0.15, 0.85))
+  df %>% filter(Profit > quantiles[1] & Profit < quantiles[2])
+}
+
+cleaned_data_15 <- focused_data %>%
+  group_by(Market, `Sub-Category`) %>%
+  do(remove_outliers_15(.))
+
+# Apply the function to each market and sub-category combination
+
+
+summary_data <- focused_data %>%
+  group_by(Market, `Sub-Category`) %>%
+  summarise(Count = n(), 
+            Average_Profit = mean(Profit), 
+            .groups = 'drop') %>%
+  arrange(desc(Average_Profit)) 
+
+summary_data_5 <- cleaned_data_5 %>%
+  group_by(Market, `Sub-Category`) %>%
+  summarise(Count = n(), 
+            Average_Profit = mean(Profit), 
+            .groups = 'drop') %>%
+  arrange(desc(Average_Profit)) 
+
+summary_data_10 <- cleaned_data_10 %>%
+  group_by(Market, `Sub-Category`) %>%
+  summarise(Count = n(), 
+            Average_Profit = mean(Profit), 
+            .groups = 'drop') %>%
+  arrange(desc(Average_Profit)) 
+
+summary_data_15 <- cleaned_data_15 %>%
+  group_by(Market, `Sub-Category`) %>%
+  summarise(Count = n(), 
+            Average_Profit = mean(Profit), 
+            .groups = 'drop') %>%
+  arrange(desc(Average_Profit)) 
+knitr::kable(
+head(summary_data),
+caption = "Profit vs Category for complete data"
+)
+knitr::kable(
+head(summary_data_5),
+caption = "Profit vs Category for 5% Outlier Removed Data"
+)
+knitr::kable(
+head(summary_data_10),
+caption = "Profit vs Category for 10% Outlier Removed Data"
+)
+knitr::kable(
+head(summary_data_15),
+caption = "Profit vs Category for 15% Outlier Removed Data"
+)
+```
+Important Findings: 
+1.	Always High Performers: 
+a.	US Copiers continually exhibit high average profitability at all outlier removal levels, albeit the average profit declines with increasing outlier removal. This suggests that the US market for Copiers is healthy and may be fueled by profitable high-end sales that continue to do well even after being tamed by eliminating extremes. 
+b.	Additionally, Copiers in the EU and APAC frequently rank among the top results, indicating robust demand and profitability in these countries as well. 
+
+2.	Outlier Removal on Profits: 
+a.	As more outliers are eliminated, Bookcases and Copies in a variety of markets typically see a decline in average profit. This implies that there are a sizable proportion of highly profitable sales in these subcategories that are regarded as anomalies.
+b.	Tables in Africa and EMEA exhibit intriguing trends, indicating that tables can be lucrative even after a sizable amount of outlier data has been eliminated. This suggests steady demand and perhaps profitable operations.
+
+3.	Decrease in Counts:
+a.	It is assumed that the elimination of outliers will reduce the number of transactions (data points) for each subcategory, however the effect on profit measures varies. Even with fewer transactions, certain categories manage a comparatively high average profit, indicating that the eliminated outliers were, in fact, extreme values that were either too high or too low.
+
+4.	Outlier Removal on Market:
+a.	The original data had 28 different combinations of Market and Subcategories. However, due to the outlier removal, we lost 1 combination, which is Tables in Canada. It has to be mentioned that only two Tables were sold.
+
+Conclusion and suggestion:
+1.	The regular appearance of Copier in different Market locations suggest this subcategory possibility to be accepted in any market regardless of price, strategies or product itself.
+
+2.	Bookcases, Tables and Chairs have to be further analyzed to see other factors affect. Nevertheless, companies with these subcategories served should focus on pricing to be well accepted in any Market. It has to be mentioned that is not a case for Africa market where tables on top 2 by the average profit and Canada with their highest average profit in Chair subcategory.
+
+a.	Only 7 Tables out of 37 was sold in Africa with a discount rate of 0.7. Therefore, it is required to use outlier removal of at least 5% to cover some of these purchases.
+b.	1284 Bookcases products out of 2411 was sold with a discount across all Markets. The highest discount rate again happened in Africa, and therefore outlier removal is a must.
+
+3.	Chairs appear on top 10 list by the average profit only in original data. Outlier removal shifted their appearance in top 10 suggesting that an outstanding or low sales happened. Further investigation into the discount and pricing has to be done. 
+a.	All Chair sales in Canada was without the discount.
+
 # Results and Analysis
-We have so far completed :
+We completed:
 
 * EDA for our dataset
 * Identified key features to model one variable - Profit
@@ -354,14 +491,22 @@ We identified the following most important features:
 
 We achieved best performance or R-Squared = 55.01% with Model 0.
 
-# Future Work
-Our future work further develops on the model built till now. So far, we have considered different markets. We will be segmenting our analysis on Sub Category in next step. Analysing in detail effect of each sub category on profit and other numeric variables.
+We analysed outlier data as well in depth.
 
-Also, taking into account feedback given to us by TA, the following steps would be carried out:
+# Limitations of Models Developed:
+Limited Predictive Power:
+a. Unexplained Variance: Despite achieving an R-squared value of 55.01%, there's still a significant portion of the variance in profit that the model doesn't account for. This unexplained variance could stem from factors not included in the model or from inherent unpredictability in profit dynamics.
 
-1. Model other numeric variables- Discount, Sales, Shipping Cost.
-2. Treat Discount Variable as a categorical variable and carry out classification analysis
-3. Treat other categorical variables as target and carry out classification modeling
-4. Explore other datasets which provide other forms of cost - Revenue, Cost price, Selling Price etc so as to further refine our Profit Model
-5. Treat removed outlier data separately
+b. Complex Real-world Dynamics: Profitability in a real-world business setting is influenced by multifaceted interactions among numerous variables, such as market trends, consumer behavior, competitor actions, and macroeconomic conditions. Capturing all these dynamics accurately in a model is challenging, leading to incomplete predictions.
+
+c. Data Limitations: The model's predictive power is constrained by the quality, quantity, and representativeness of the data used for training. If the dataset doesn't encompass the full range of scenarios or lacks granularity, the model may struggle to generalize to new situations.
+
+Model Complexity:
+a. Overfitting: As models become increasingly complex, they run the risk of overfitting the training data. Overfitting occurs when a model captures noise or random fluctuations in the training data, rather than genuine underlying patterns. This can lead to poor performance when applied to unseen data.
+
+b. Interpretability: More complex models, such as neural networks or ensemble methods, may offer higher predictive accuracy but often sacrifice interpretability. It becomes challenging to understand how the model arrives at its predictions, making it harder to gain insights or trust its outputs.
+
+c. Computational Resources: Complex models typically require more computational resources, both in terms of processing power and memory. This can pose practical challenges, especially for deployment in resource-constrained environments or real-time applications.
+
+d. Training and Maintenance: Complex models may necessitate more extensive training and ongoing maintenance efforts. They often involve fine-tuning numerous hyperparameters and monitoring for performance degradation over time. This increases the complexity of model development and management.
 
